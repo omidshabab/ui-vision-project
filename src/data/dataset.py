@@ -1,64 +1,44 @@
-from torch.utils.data import Dataset
-from PIL import Image
-import json
 import os
+import json
 import torch
+from PIL import Image
+from torch.utils.data import Dataset
 
 class UIDataset(Dataset):
-    def __init__(self, image_dir, annotations_dir, transform=None, max_features=500):
+    def __init__(self, image_dir, annotation_dir, transform=None):
         self.image_dir = image_dir
-        self.annotations_dir = annotations_dir
+        self.annotation_dir = annotation_dir
         self.transform = transform
-        self.max_features = max_features  # Maximum number of features to store
         
-        # Exclude hidden files and only include images
-        self.images = [f for f in sorted(os.listdir(image_dir))
-                      if not f.startswith('.') and
-                      f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        # Get list of all images
+        self.images = [f for f in os.listdir(image_dir) if f.endswith(('.png', '.jpg', '.jpeg'))]
         
-        # Convert annotations to tensors
-        self.annotations = []
-        for img in self.images:
-            ann_path = os.path.join(annotations_dir, os.path.splitext(img)[0] + '.json')
-            with open(ann_path, 'r') as f:
-                ann = json.load(f)
-                
-            # Extract numerical features recursively
-            features = self.extract_features(ann)
-            
-            # Pad or truncate features to max_features
-            if len(features) > self.max_features:
-                features = features[:self.max_features]
-            else:
-                features.extend([0] * (self.max_features - len(features)))
-                
-            self.annotations.append(torch.tensor(features, dtype=torch.float))
-    
-    def extract_features(self, obj):
-        """Recursively extract numerical features from JSON object"""
-        features = []
-        numerical_keys = ['x', 'y', 'width', 'height', 'rotation', 'opacity', 'cornerRadius']
-        
-        if isinstance(obj, dict):
-            for key in numerical_keys:
-                if key in obj:
-                    features.append(float(obj[key]))
-            
-            # Recursively process children
-            if 'children' in obj:
-                for child in obj['children']:
-                    features.extend(self.extract_features(child))
-                    
-        return features
-    
     def __len__(self):
         return len(self.images)
     
     def __getitem__(self, idx):
-        img_path = os.path.join(self.image_dir, self.images[idx])
+        # Load image
+        img_name = self.images[idx]
+        img_path = os.path.join(self.image_dir, img_name)
         image = Image.open(img_path).convert('RGB')
+        
+        # Load annotation
+        ann_name = os.path.splitext(img_name)[0] + '.json'
+        ann_path = os.path.join(self.annotation_dir, ann_name)
+        
+        with open(ann_path, 'r') as f:
+            annotation = json.load(f)
+        
+        # Convert annotation to tensor
+        # Assuming annotation contains x, y, width, height
+        target = torch.tensor([
+            annotation['x'],
+            annotation['y'],
+            annotation['width'],
+            annotation['height']
+        ], dtype=torch.float32)
         
         if self.transform:
             image = self.transform(image)
             
-        return image, self.annotations[idx]
+        return image, target
